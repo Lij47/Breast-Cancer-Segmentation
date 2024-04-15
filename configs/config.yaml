@@ -1,0 +1,55 @@
+train_dataset:
+  image_path: "dataset/BCSS_512/train_512/*.png"
+  mask_path: "dataset/BCSS_512/train_mask_512/*.png"
+  num_classes: 22
+
+valid_dataset:
+  image_path: "dataset/BCSS_512/val_512/*.png"
+  mask_path: "dataset/BCSS_512/val_mask_512/*.png"
+  num_classes: 22
+
+train_dataloader:
+  batch_size: 4
+  num_workers: 12
+  shuffle: True
+
+valid_dataloader:
+  batch_size: 8
+  num_workers: 12
+  persistent_workers: True
+  shuffle: False
+
+test_dataloader:
+  batch_size: 8
+  num_workers: 12
+  shuffle: False
+
+unet:
+  in_channels: 3
+  out_channels: 22
+
+unet_optimizer:
+  lr: 0.0001
+
+trainer:
+  accelerator: "gpu"
+  max_epochs: 50
+  check_val_every_n_epoch: 1
+
+logger: 
+  save_dir: "./"
+  name: "lightning_logs"
+
+callbacks:
+  model_checkpoint:
+    monitor: "valid_loss"
+    mode: "min"
+    save_top_k: 3
+    save_last: True
+    filename: "{epoch}-{valid_loss:.2f}"
+    dirpath: "checkpoints"
+
+# resume_last_checkpoint: "checkpoints/last.ckpt"
+last_checkpoint: Null
+
+
