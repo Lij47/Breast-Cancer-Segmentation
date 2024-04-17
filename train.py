@@ -6,18 +6,17 @@ import lightning as L
 import yaml
 from model import UNet
 from dataset import BreastCancerDataset
-from lightning.pytorch.callbacks import ModelCheckpoint
+from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
 from lightning.pytorch import Trainer
 from lightning.pytorch.loggers import TensorBoardLogger
+import multiprocessing
 import argparse
-import warnings
 
 
 def main(yaml_file_dir="configs/config.yaml"):
 
     torch.manual_seed(42)
 
-    warnings.filterwarnings("ignore", message="The torchvision.datapoints and torchvision.transforms.v2 namespaces are still Beta.*")
     #load config file
     cfg = yaml.safe_load(open(yaml_file_dir))
 
@@ -35,25 +34,29 @@ def main(yaml_file_dir="configs/config.yaml"):
     valid_dataset, test_dataset = random_split(valid_dataset, [valid_dataset_size, test_dataset_size])
     print("Finished splitting dataset.")
 
+    # loading data into dataloaders
     print("Creating dataloaders...")
-    train_loader = du.DataLoader(train_dataset, **cfg["train_dataloader"])
-    valid_loader = du.DataLoader(valid_dataset, **cfg["valid_dataloader"])
-    test_loader = du.DataLoader(test_dataset, **cfg["test_dataloader"])
+    num_cpus = multiprocessing.cpu_count()
+    train_loader = du.DataLoader(train_dataset, **cfg["train_dataloader"], num_workers=num_cpus)
+    valid_loader = du.DataLoader(valid_dataset, **cfg["valid_dataloader"], num_workers=num_cpus)
+    test_loader = du.DataLoader(test_dataset, **cfg["test_dataloader"], num_workers=num_cpus)
     print("Finished creating dataloaders.")
 
     # load model
     print("Loading model...")
-    model = UNet(cfg["unet"], cfg["unet_optimizer"])
+    model = UNet(cfg["unet"], cfg["unet_optimizer"], cfg["unet_scheduler"])
     print("Finished loading model.")
 
     checkpoint_callback = ModelCheckpoint(**cfg["callbacks"]["model_checkpoint"])
+    lr_callback = LearningRateMonitor(logging_interval='epoch')
+    callbacks = [checkpoint_callback, lr_callback]
 
     # train model
     if cfg["logger"] is not None:
         logger = TensorBoardLogger(**cfg["logger"])
-        trainer = L.Trainer(**cfg["trainer"], logger=logger, callbacks=[checkpoint_callback])
+        trainer = L.Trainer(**cfg["trainer"], logger=logger, callbacks=callbacks)
     else:
-        trainer = L.Trainer(**cfg["trainer"], callbacks=[checkpoint_callback])
+        trainer = L.Trainer(**cfg["trainer"], callbacks=callbacks)
 
 
     print("Training model...")

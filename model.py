@@ -48,17 +48,26 @@ class UpSampling(nn.Module):
         x = self.conv(x)
         return x
     
-def dice_loss(pred, target, smooth=1e-6):
+def dice_loss(pred, target, smooth=1e-6, num_classes=22):
     pred = torch.softmax(pred, dim=1)
-    target = F.one_hot(target, num_classes=pred.shape[1]).permute(0, 3, 1, 2)
-    intersection = torch.sum(pred * target)
-    union = torch.sum(pred) + torch.sum(target)
-    dice = (2 * intersection + smooth) / (union + smooth)
-    return 1 - dice
+    target = F.one_hot(target, num_classes=num_classes).permute(0, 3, 1, 2)
+    intersection = torch.sum(pred * target, dim=(2,3))
+    union = torch.sum(pred, dim=(2,3)) + torch.sum(target, dim=(2,3))
+    dice_per_class = (2 * intersection + smooth) / (union + smooth)
+    mean_dice = torch.mean(dice_per_class)
+    return 1 - mean_dice
 
+def mIoU(pred, target, smooth=1e-6, num_classes=22):
+    pred = pred.unsqueeze(dim=1)
+    target = F.one_hot(target, num_classes=num_classes).permute(0, 3, 1, 2)
+    intersection = torch.sum(pred * target, dim=(2,3))
+    union = torch.sum(pred, dim=(2,3)) + torch.sum(target, dim=(2,3)) - intersection
+    iou = (intersection + smooth) / (union + smooth)
+    miou = torch.mean(iou)
+    return miou
 
 class UNet(L.LightningModule):
-    def __init__(self, UNet_configs, optimizer_configs):
+    def __init__(self, UNet_configs, optimizer_configs, lr_configs):
         super().__init__()
         self.save_hyperparameters()
 
@@ -74,6 +83,7 @@ class UNet(L.LightningModule):
         self.final_conv = nn.Conv2d(in_channels=64, out_channels=UNet_configs["out_channels"], kernel_size=1, padding="same")
 
         self.optimizer_configs = optimizer_configs
+        self.lr_configs = lr_configs
         self.valid_accuracy = tm.Accuracy(task="multiclass", num_classes=UNet_configs["out_channels"])
         self.valid_precision = tm.Precision(task="multiclass", num_classes=UNet_configs["out_channels"])
         self.valid_recall = tm.Recall(task="multiclass", num_classes=UNet_configs["out_channels"])
@@ -88,9 +98,10 @@ class UNet(L.LightningModule):
             self.color_map.append(torch.randint(0, 256, (3,)).tolist())
         self.color_map = torch.tensor(self.color_map)
         self.color_map[0] = torch.tensor([0, 0, 0])
+        self.num_classes = UNet_configs["out_channels"]
 
-    def forward(self, input):
-        left1 = self.conv1(input)
+    def forward(self, x):
+        left1 = self.conv1(x)
         left2 = self.down1(left1)
         left3 = self.down2(left2)
         left4 = self.down3(left3)
@@ -106,22 +117,23 @@ class UNet(L.LightningModule):
         inputs, target, _ = batch
         output = self(inputs)
         loss = F.cross_entropy(output, target)
-        loss += dice_loss(output, target)
-        self.log("train_loss", loss, on_step=True, on_epoch=True, sync_dist=True, prog_bar=True)
+        loss += dice_loss(output, target, num_classes=self.num_classes)
+        self.log("train loss", loss, on_step=True, on_epoch=True, sync_dist=True, prog_bar=True)
         return loss
-    
+
     def validation_step(self, batch, batch_idx):
         inputs, target, image = batch
         output = self(inputs)
         loss = F.cross_entropy(output, target)
-        loss += dice_loss(output, target)
+        loss += dice_loss(output, target, num_classes=self.num_classes)
         target = target.type(torch.int64)
         output = torch.argmax(output, dim=1)
         metrics = {
-            "valid_acc": self.valid_accuracy(output, target), 
-            "valid_prec": self.valid_precision(output, target),
-            "valid_recall": self.valid_recall(output, target), 
-            "valid_f1": self.valid_f1(output, target),
+            "valid acc": self.valid_accuracy(output, target), 
+            "valid prec": self.valid_precision(output, target),
+            "valid recall": self.valid_recall(output, target), 
+            "valid f1": self.valid_f1(output, target),
+            "valid iou": mIoU(output, target, num_classes=self.num_classes)
         }
         self.log("valid_loss", loss, on_step=False, on_epoch=True, sync_dist=True)
         self.log_dict(metrics, on_epoch=True, sync_dist=True)
@@ -146,14 +158,15 @@ class UNet(L.LightningModule):
         inputs, target, image = batch
         output = self(inputs)
         loss = F.cross_entropy(output, target)
-        loss += dice_loss(output, target)
+        loss += dice_loss(output, target, num_classes=self.num_classes)
         target = target.type(torch.int64)
         output = torch.argmax(output, dim=1)
         metrics = {
-            "test_acc": self.test_accuracy(output, target), 
-            "test_prec": self.test_precision(output, target),
-            "test_recall": self.test_recall(output, target), 
-            "test_f1": self.test_f1(output, target),
+            "test acc": self.test_accuracy(output, target), 
+            "test prec": self.test_precision(output, target),
+            "test recall": self.test_recall(output, target), 
+            "test f1": self.test_f1(output, target),
+            "test iou": mIoU(output, target, num_classes=self.num_classes)
         }
         self.log("test_loss", loss, on_step=False, on_epoch=True, sync_dist=True)
         self.log_dict(metrics, on_epoch=True, sync_dist=True)
@@ -175,4 +188,13 @@ class UNet(L.LightningModule):
         return loss
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(self.parameters(), **self.optimizer_configs)
+        optimizer = torch.optim.AdamW(self.parameters(), **self.optimizer_configs)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, **self.lr_configs)
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "interval": "epoch",
+                "frequency": 1,
+        },
+    }

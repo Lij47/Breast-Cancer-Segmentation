@@ -9,19 +9,19 @@ valid_dataset:
   num_classes: 22
 
 train_dataloader:
-  batch_size: 4
-  num_workers: 12
+  batch_size: 16
+  # num_workers: 12
   shuffle: True
 
 valid_dataloader:
-  batch_size: 8
-  num_workers: 12
+  batch_size: 16
+  # num_workers: 12
   persistent_workers: True
   shuffle: False
 
 test_dataloader:
-  batch_size: 8
-  num_workers: 12
+  batch_size: 16
+  # num_workers: 12
   shuffle: False
 
 unet:
@@ -31,9 +31,12 @@ unet:
 unet_optimizer:
   lr: 0.0001
 
+unet_scheduler:
+  T_max: 20
+
 trainer:
   accelerator: "gpu"
-  max_epochs: 50
+  max_epochs: 20
   check_val_every_n_epoch: 1
 
 logger: 
