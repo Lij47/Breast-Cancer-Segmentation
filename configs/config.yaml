@@ -1,42 +1,45 @@
 train_dataset:
   image_path: "dataset/BCSS_512/train_512/*.png"
   mask_path: "dataset/BCSS_512/train_mask_512/*.png"
-  num_classes: 22
+  # image_path: "dataset/BCSS/train/*.png"
+  # mask_path: "dataset/BCSS/train_mask/*.png"
 
 valid_dataset:
   image_path: "dataset/BCSS_512/val_512/*.png"
   mask_path: "dataset/BCSS_512/val_mask_512/*.png"
-  num_classes: 22
+  # image_path: "dataset/BCSS/val/*.png"
+  # mask_path: "dataset/BCSS/val_mask/*.png"
 
 train_dataloader:
-  batch_size: 16
-  # num_workers: 12
+  batch_size: 32
   shuffle: True
 
 valid_dataloader:
-  batch_size: 16
-  # num_workers: 12
+  batch_size: 64
   persistent_workers: True
   shuffle: False
 
 test_dataloader:
-  batch_size: 16
-  # num_workers: 12
+  batch_size: 64
   shuffle: False
 
-unet:
+model:
+  # model_name: "deeplabv3_resnet50"
+  model_name: fcn_resnet50
+  # model_name: UNet
   in_channels: 3
-  out_channels: 22
+  out_channels: 21
 
-unet_optimizer:
-  lr: 0.0001
+optimizer:
+  lr: 0.00001
+  weight_decay: 0.01
 
-unet_scheduler:
-  T_max: 20
+lr_scheduler:
+  T_max: 5
 
 trainer:
   accelerator: "gpu"
-  max_epochs: 20
+  max_epochs: 5
   check_val_every_n_epoch: 1
 
 logger: 
@@ -51,6 +54,10 @@ callbacks:
     save_last: True
     filename: "{epoch}-{valid_loss:.2f}"
     dirpath: "checkpoints"
+  early_stopping:
+    monitor: "valid_loss"
+    mode: "min"
+    patience: 3
 
 # resume_last_checkpoint: "checkpoints/last.ckpt"
 last_checkpoint: Null

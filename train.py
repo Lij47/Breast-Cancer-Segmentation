@@ -4,9 +4,9 @@ import torch.utils.data as du
 from torch.utils.data import random_split
 import lightning as L
 import yaml
-from model import UNet
+from model import model
 from dataset import BreastCancerDataset
-from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor
+from lightning.pytorch.callbacks import ModelCheckpoint, LearningRateMonitor, EarlyStopping
 from lightning.pytorch import Trainer
 from lightning.pytorch.loggers import TensorBoardLogger
 import multiprocessing
@@ -44,12 +44,15 @@ def main(yaml_file_dir="configs/config.yaml"):
 
     # load model
     print("Loading model...")
-    model = UNet(cfg["unet"], cfg["unet_optimizer"], cfg["unet_scheduler"])
+    net = model(cfg["model"], cfg["optimizer"], cfg["lr_scheduler"])
+    print(net)
     print("Finished loading model.")
 
     checkpoint_callback = ModelCheckpoint(**cfg["callbacks"]["model_checkpoint"])
     lr_callback = LearningRateMonitor(logging_interval='epoch')
-    callbacks = [checkpoint_callback, lr_callback]
+    earlystopping_callback = EarlyStopping(**cfg["callbacks"]["early_stopping"])
+    callbacks = [checkpoint_callback, lr_callback, earlystopping_callback]
+
 
     # train model
     if cfg["logger"] is not None:
@@ -61,11 +64,11 @@ def main(yaml_file_dir="configs/config.yaml"):
 
     print("Training model...")
 
-    trainer.fit(model, train_loader, valid_loader, ckpt_path=cfg["last_checkpoint"])
+    trainer.fit(net, train_loader, valid_loader, ckpt_path=cfg["last_checkpoint"])
     print("Finished training model.")
 
     print("Testing model...")
-    trainer.test(model, test_loader)
+    trainer.test(net, test_loader)
     print("Finished testing model.")
 
 def parse_args():
